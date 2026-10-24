@@ -201,10 +201,10 @@ textarea{min-height:110px;font-family:ui-monospace,Menlo,monospace;font-size:12p
 .wcount span{color:var(--mut);font-weight:500;font-size:14px}
 .wpips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
 .wpip{width:26px;height:30px;border-radius:5px 5px 10px 10px;border:2px solid var(--su);position:relative;overflow:hidden}
-.wpip i{position:absolute;left:0;right:0;bottom:0;top:0;background:var(--su)}
+.wpip i{position:absolute;left:0;right:0;bottom:0;height:100%;background:var(--su)}
 .wpip.pop{animation:pop .38s ease-out}
 .wbtns{display:flex;gap:8px;align-items:center;margin-top:6px}
-.wbtns .primary{flex:1;background:var(--su);color:#fff}
+.wbtns .primary{flex:1;background:var(--su);color:#fff;padding:11px 6px}
 .wbtns .ghost{width:48px;padding:10px 0}
 .wbtns .ghost:disabled{opacity:.35}
 
@@ -434,7 +434,7 @@ const DLET=['P','S','Ç','P','C','C','P'];
 const KEY='porsiyon-takip:v1';
 const REDUCED=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-let data={days:{},recent:[],custom:[],over:{},water:{},waterTarget:8};
+let data={days:{},recent:[],custom:[],over:{},water:{},waterLog:{},waterTarget:8};
 let mealManual=null;
 let waterAnimate=false;
 let cur=todayStr();
@@ -465,6 +465,7 @@ function load(){
   data.custom=Array.isArray(data.custom)?data.custom:[];
   data.over=data.over&&typeof data.over==='object'?data.over:{};
   data.water=data.water&&typeof data.water==='object'?data.water:{};
+  data.waterLog=data.waterLog&&typeof data.waterLog==='object'?data.waterLog:{};
   data.waterTarget=Number(data.waterTarget)>0?Number(data.waterTarget):8;
 }
 function save(){try{localStorage.setItem(KEY,JSON.stringify(data));}catch(e){}}
@@ -747,30 +748,45 @@ function renderMeals(){
 }
 
 function waterOf(s){return data.water[s]||0}
-function setWater(n){
-  n=Math.max(0,Math.min(40,n));
-  if(n) data.water[cur]=n; else delete data.water[cur];
+function addWater(a){
+  const p=waterOf(cur);
+  data.water[cur]=Math.min(60,Math.round((p+a)*100)/100);
+  (data.waterLog[cur]=data.waterLog[cur]||[]).push({a:a,t:nowStr()});
   save();
+  waterAnimate=true;renderWater(p);waterAnimate=false;renderWeekly();
+}
+function undoWater(){
+  const p=waterOf(cur); if(!p) return;
+  const log=data.waterLog[cur]||[];
+  const last=log.pop();
+  const n=Math.max(0,Math.round((last?p-last.a:p-1)*100)/100);
+  if(n) data.water[cur]=n; else delete data.water[cur];
+  if(!log.length) delete data.waterLog[cur];
+  save();renderWater();renderWeekly();
 }
 function renderWater(prev){
   const n=waterOf(cur),T=data.waterTarget;
   const before=(typeof prev==='number')?prev:n;
-  const slots=Math.max(T,n);
+  const slots=Math.max(T,Math.ceil(n));
   let pips='';
   for(let i=0;i<slots;i++){
-    const on=i<n;
-    pips+='<span class="wpip'+(waterAnimate&&on&&i>=before?' pop':'')+'">'+(on?'<i></i>':'')+'</span>';
+    const f=Math.max(0,Math.min(1,n-i));
+    const bf=Math.max(0,Math.min(1,before-i));
+    pips+='<span class="wpip'+(waterAnimate&&f>bf?' pop':'')+'">'+(f>0?'<i style="height:'+(f*100)+'%"></i>':'')+'</span>';
   }
-  const note=n>=T?'Hedef tamam 💧':'Kalan: '+(T-n)+' bardak';
+  const log=data.waterLog[cur]||[];
+  const lastT=log.length?log[log.length-1].t:null;
+  const note=(n>=T?'Hedef tamam 💧':'Kalan: '+fmt(T-n)+' bardak')+(lastT?' · Son: '+lastT:'');
   document.getElementById('waterCard').innerHTML=
     '<div class="wtop"><h2>💧 Su</h2><div class="wtgt">Hedef <button id="wMinus" aria-label="Hedefi azalt">−</button><b>'+T+'</b><button id="wPlus" aria-label="Hedefi artır">+</button> bardak</div></div>'+
-    '<div class="wcount">'+n+' <span>/ '+T+' bardak · ≈ '+fmt(n*0.2)+' L</span></div>'+
+    '<div class="wcount">'+fmt(n)+' <span>/ '+T+' bardak · ≈ '+fmt(n*0.2)+' L</span></div>'+
     '<div class="wpips">'+pips+'</div>'+
     '<div class="grp-note '+(n>=T?'ok':'')+'">'+esc(note)+'</div>'+
-    '<div class="wbtns"><button class="ghost" id="wDec" aria-label="Bir bardak azalt"'+(n===0?' disabled':'')+'>−</button><button class="primary" id="wInc">+ 1 bardak</button></div>'+
-    '<p class="hint">1 bardak ≈ 200 ml. Hedef genel bir varsayımdır, diyetisyeninin söylediği miktara göre değiştir.</p>';
-  document.getElementById('wInc').onclick=()=>{const p=waterOf(cur);setWater(p+1);waterAnimate=true;renderWater(p);waterAnimate=false;renderWeekly();};
-  document.getElementById('wDec').onclick=()=>{setWater(waterOf(cur)-1);renderWater();renderWeekly();};
+    '<div class="wbtns"><button class="ghost" id="wDec" aria-label="Son eklemeyi geri al"'+(n===0?' disabled':'')+'>↩︎</button><button class="primary" id="wInc">+ 1 bardak</button><button class="primary" id="wHalf">+ 0,5 L</button></div>'+
+    '<p class="hint">1 bardak ≈ 200 ml, 0,5 L = 2,5 bardak. ↩︎ son eklemeyi geri alır. Hedef genel bir varsayımdır, diyetisyeninin söylediği miktara göre değiştir.</p>';
+  document.getElementById('wInc').onclick=()=>addWater(1);
+  document.getElementById('wHalf').onclick=()=>addWater(2.5);
+  document.getElementById('wDec').onclick=undoWater;
   document.getElementById('wMinus').onclick=()=>{data.waterTarget=Math.max(1,data.waterTarget-1);save();renderWater();renderWeekly();};
   document.getElementById('wPlus').onclick=()=>{data.waterTarget=Math.min(20,data.waterTarget+1);save();renderWater();renderWeekly();};
 }
@@ -963,6 +979,7 @@ function setup(){
       data.custom=Array.isArray(data.custom)?data.custom:[];
       data.over=data.over&&typeof data.over==='object'?data.over:{};
       data.water=data.water&&typeof data.water==='object'?data.water:{};
+      data.waterLog=data.waterLog&&typeof data.waterLog==='object'?data.waterLog:{};
       data.waterTarget=Number(data.waterTarget)>0?Number(data.waterTarget):8;
       save();prevFill={};render();msg.textContent='Yedek yüklendi.';
     }catch(e){msg.textContent='Yedek okunamadı. Metnin tamamını yapıştırdığından emin ol.';}
